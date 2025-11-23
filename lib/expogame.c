@@ -5,9 +5,11 @@
 // -----------------
 // USER
 // -----------------
-Player_t create_user(const char* name) {
+Player_t create_user(const char* name,int sock) {
     Player_t u;
     u.name = strdup(name);
+    u.id = sock;
+    u.matchid = -1;
     return u;
 }
 
@@ -19,11 +21,30 @@ int exist_player(Player_t *players, const char* name, int capacity) {
     }
     return 0; // Player does not exist
 }
+Player_t get_player(Player_t *players, int id, int capacity) {
+    for (int i = 0; i < capacity; i++) {
+        if (players[i].id == id) {
+            return players[i]; // Return the found player
+        }
+    }
+    Player_t empty = { .matchid = -1, .id = -1, .name = NULL, .isready = 0 };
+    return empty; // Return an empty player if not found
+}
 void add_player(Player_t *players, Player_t player, int *cappacity) {
     players[*cappacity] = player;
     *cappacity += 1;
 }
-
+void remove_player(Player_t *players, int id, int *capacity) {
+    for (int i = 0; i < *capacity; i++) {
+        if (players[i].id == id) {
+            for (int j = i; j < *capacity - 1; j++) {
+                players[j] = players[j + 1];
+            }
+            (*capacity)--;
+            return;
+        }
+    }
+}
 // -----------------
 // CARD
 // -----------------
@@ -75,18 +96,45 @@ void free_bunch(Bunch* b) {
 // -----------------
 // MATCH
 // -----------------
-Match_t *create_match(int id, int capacity) {
-    Match_t *m = NULL;
-    m = malloc(sizeof(Match_t));
-    m->id = id;
-    m->count = 0;
-    m->capacity = capacity;
-    m->players = malloc(sizeof(Player_t) * capacity);
+void replace_space_with_newline(char *str) {
+    for (int i = 0; str[i] != '\0'; i++) {
+        if (str[i] == ' ')
+            str[i] = '\n';
+    }
+}
+
+Match_t create_match(int id, int capacity) {
+    Match_t m;
+    m.id = id;
+    m.count = 0;
+    m.capacity = capacity;
     return m;
 }
 
-void print_matches(Match_t* matches,int len){
+char* print_matches(Match_t* matches,int len,char* buffer){
+    strcat(buffer,"Available Matches: ");
+    char temp[100];
     for(int i =0; i<len; i++){
-        printf("Match %d:%d/%d\n",i,matches[i].count,matches[i].capacity);
+        snprintf(temp,100,"Match %d:%d/%d",i,matches[i].count,matches[i].capacity);
+        strcat(buffer,temp);
+    }
+    return buffer;
+}
+int is_match_full(Match_t match){
+    return match.count == match.capacity;
+}
+void add_match_player(Match_t match, Player_t player){
+    match.players[match.count] = player;
+    match.count++;
+}
+void remove_match_player(Match_t match, int playerid){
+    for(int i=0; i<match.count; i++){
+        if(match.players[i].id == playerid){
+            for(int j=i; j<match.count-1; j++){
+                match.players[j] = match.players[j+1];
+            }
+            match.count--;
+            return;
+        }
     }
 }
