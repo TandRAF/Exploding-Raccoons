@@ -3,28 +3,79 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <errno.h>
 #include "expogame.h"
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
 
-int send_string(int sock, const char* str) {
-    ssize_t sent = send(sock, str, strlen(str) + 1, 0);
-    if (sent < 0) {
-        perror("send_string error");
+int send_string(int sock, const char *str) {
+    char message[BUFFER_SIZE];
+
+    // Prevent overflow:
+    size_t len = snprintf(message, sizeof(message), "%s\n", str);
+
+    if (len >= sizeof(message)) {
+        fprintf(stderr, "send_string: message too long\n");
         return -1;
+    }
+
+    size_t total = 0;
+    while (total < len) {
+        ssize_t sent = send(sock, message + total, len - total, 0);
+
+        if (sent < 0) {
+            perror("send_string error");
+            return -1;
+        }
+
+        total += sent;
+    }
+
+    return 0;
+}
+
+
+int recv_string(int sock, char *buffer, size_t max_len) {
+    size_t total = 0;
+
+    while (total < max_len - 1) {
+        char c;
+        ssize_t received = recv(sock, &c, 1, 0);
+
+        if (received == 0) {
+            // connection closed cleanly
+            return -1;
+        }
+        if (received < 0) {
+            perror("recv error");
+            return -1;
+        }
+
+        if (c == '\n') break;   // end of message
+        if (c == '\0') break;   // just in case
+
+        buffer[total++] = c;
+    }
+
+    buffer[total] = '\0';
+    return 0;
+}
+
+int recv_multiline(int sock) {
+    char buffer[BUFFER_SIZE];
+    while (1) {
+        if (recv_string(sock, buffer, BUFFER_SIZE) < 0)
+            return -1;
+
+        if (strcmp(buffer, "END") == 0)
+            break;
+
+        printf("%s\n", buffer);
     }
     return 0;
 }
 
-int recv_string(int sock, char* buffer, size_t max_len) {
-    ssize_t received = recv(sock, buffer, max_len, 0);
-    if (received <= 0) {
-        return -1;
-    }
-    buffer[received < max_len ? received : max_len - 1] = '\0';
-    return 0;
-}
 
 void enter_name(int sock, Player_t *user) {
     char name[BUFFER_SIZE];
@@ -56,33 +107,48 @@ void enter_name(int sock, Player_t *user) {
             printf("%s\n", resp);
             continue;
         } else {
-            *user = create_user(name);
+            *user = create_user(name, sock);
             printf("You Joined as %s\n", user->name); // e.g. "You Join!"
         }
         break;
     }
 }
-// void select_match(int sock, Player_t player) {
-//     char buffer[BUFFER_SIZE];
-//     // Get the list of matches
-//     recv_string(sock, buffer, BUFFER_SIZE);
-//     printf("%s\n", buffer);
-//     // Enter your match choice
-//     printf("Enter match number: ");
-//     scanf("%s", buffer);
-//     send_string(sock, buffer);
-//     // Get match ID and player ID (or "0" if invalid)
-//     recv_string(sock, buffer, BUFFER_SIZE);
-//     printf("got %s\n",buffer);
-//     if (strcmp(buffer, "0\n") == 0) {
-//         printf("Match is full or doesn't exist.\n");
-//         select_match(sock, player); // retry
-//         return;
-//     }
-//     // Parse "matchid playerid"
-//     sscanf(buffer, "%d %d", &player.matchid, &player.id);
-//     printf("Joined match %d as player %s.\n", player.matchid, player.name);
-// }
+void select_match(int sock, Player_t player) {
+    char buffer[BUFFER_SIZE];
+    while (1) {
+        if (recv_string(sock, buffer, BUFFER_SIZE) < 0) {
+            perror("recv_string");
+            exit(1);
+        }
+        replace_space_with_newline(buffer);
+        printf("%s\n", buffer);
+        printf("Select Match ID: ");
+        if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
+            perror("fgets");
+            exit(1);
+        }
+        buffer[strcspn(buffer, "\n")] = '\0';
+
+        if (send_string(sock, buffer) < 0) {
+            perror("send_string");
+            exit(1);
+        }
+
+        if (recv_string(sock, buffer, BUFFER_SIZE) < 0) {
+            perror("recv_string");
+            exit(1);
+        }
+
+        if (strcmp(buffer, "Invalid Match ID Or Match is already full. Try again:") == 0) {
+            printf("%s\n", buffer);
+            continue;
+        } else {
+            printf("%s\n", buffer);  // e.g., "You Join!"
+            break;
+        }
+    }
+}
+
 // int setReady(int sock, Player_t player){
 //     char buffer[BUFFER_SIZE];
 //     char input[2];
@@ -116,6 +182,7 @@ int main() {
 
     printf("Connected to server. Listening for messages...\n");
     enter_name(sock,&player);
+    select_match(sock,player);
     close(sock);
     return 0;
 }
