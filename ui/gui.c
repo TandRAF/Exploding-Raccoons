@@ -1,7 +1,7 @@
 #define _DEFAULT_SOURCE
 #define _XOPEN_SOURCE 600
 
-// compile with: gcc exploding_kittens.c -o gui -lncurses -ltinfo
+// compile with: gcc gui.c -o gui -lncurses -ltinfo
 
 #include <ncurses.h>
 #include <string.h>
