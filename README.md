@@ -1,5 +1,5 @@
 # Exploding-Raccoons
-
+![Expo-Kittens](assets/er-box-image.png)
 
 - [0.0 Summary](#00-summary)
   - [0.1 How to play, briefly](#01-how-to-play-briefly)
@@ -26,7 +26,7 @@ Exploding Raccoons is a fun and strategic card game for 2–5 players, where the
 Be the **last player who does not explode**.
 
 # 1.0 Game Architecture
-![arhitecture](arhitecture.jpg)
+![arhitecture](assets/arhitecture.jpg)
 ```bash
 game_project/
 ├── server/
