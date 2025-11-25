@@ -112,10 +112,9 @@ Match_t create_match(int id, int capacity) {
 }
 
 char* print_matches(Match_t* matches,int len,char* buffer){
-    strcat(buffer,"Available Matches: ");
     char temp[100];
     for(int i =0; i<len; i++){
-        snprintf(temp,100,"Match %d:%d/%d",i,matches[i].count,matches[i].capacity);
+        snprintf(temp,100,"Match-%d:%d/%d ",i,matches[i].count,matches[i].capacity);
         strcat(buffer,temp);
     }
     return buffer;
@@ -123,9 +122,9 @@ char* print_matches(Match_t* matches,int len,char* buffer){
 int is_match_full(Match_t match){
     return match.count == match.capacity;
 }
-void add_match_player(Match_t match, Player_t player){
-    match.players[match.count] = player;
-    match.count++;
+void add_match_player(Match_t *match, Player_t player){
+    match->players[match->count] = player;
+    match->count++;
 }
 void remove_match_player(Match_t match, int playerid){
     for(int i=0; i<match.count; i++){

@@ -3,113 +3,188 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <errno.h>
 #include "expogame.h"
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
 
-// Generic send for any data
-int send_data(int sock, const void *data, uint32_t len) {
-    uint32_t net_len = htonl(len);
-    if (send(sock, &net_len, sizeof(net_len), 0) != sizeof(net_len)) return -1;
+int send_string(int sock, const char *str) {
+    char message[BUFFER_SIZE];
+
+    // Prevent overflow:
+    size_t len = snprintf(message, sizeof(message), "%s\n", str);
+
+    if (len >= sizeof(message)) {
+        fprintf(stderr, "send_string: message too long\n");
+        return -1;
+    }
 
     size_t total = 0;
-    const char *ptr = (const char*)data;
     while (total < len) {
-        ssize_t sent = send(sock, ptr + total, len - total, 0);
-        if (sent <= 0) return -1;
+        ssize_t sent = send(sock, message + total, len - total, 0);
+
+        if (sent < 0) {
+            perror("send_string error");
+            return -1;
+        }
+
         total += sent;
     }
+
     return 0;
 }
 
-// Generic receive for any data
-int recv_data(int sock, void *buffer, uint32_t max_len, uint32_t *out_len) {
-    uint32_t net_len;
-    if (recv(sock, &net_len, sizeof(net_len), MSG_WAITALL) != sizeof(net_len)) return -1;
 
-    uint32_t len = ntohl(net_len);
-    if (len > max_len) return -1;
+int recv_string(int sock, char *buffer, size_t max_len) {
+    size_t total = 0;
 
-    if (recv(sock, buffer, len, MSG_WAITALL) != len) return -1;
-    if (out_len) *out_len = len;
+    while (total < max_len - 1) {
+        char c;
+        ssize_t received = recv(sock, &c, 1, 0);
+
+        if (received == 0) {
+            // connection closed cleanly
+            return -1;
+        }
+        if (received < 0) {
+            perror("recv error");
+            return -1;
+        }
+
+        if (c == '\n') break;   // end of message
+        if (c == '\0') break;   // just in case
+
+        buffer[total++] = c;
+    }
+
+    buffer[total] = '\0';
     return 0;
 }
 
-// Enter player name
-void enter_name(int sock, Player_t *user) {
+int recv_multiline(int sock) {
     char buffer[BUFFER_SIZE];
     while (1) {
-        recv_data(sock, buffer, BUFFER_SIZE, NULL);
-        printf("%s\n", buffer); // prompt from server
+        if (recv_string(sock, buffer, BUFFER_SIZE) < 0)
+            return -1;
 
-        fgets(buffer, sizeof(buffer), stdin);
-        buffer[strcspn(buffer, "\n")] = '\0';
-
-        send_data(sock, buffer, strlen(buffer)+1);
-
-        recv_data(sock, buffer, BUFFER_SIZE, NULL);
-        if (strstr(buffer, "Name already taken") != NULL) {
-            printf("%s\n", buffer);
-            continue;
-        } else {
-            *user = create_user(buffer, sock);
-            printf("You Joined as %s\n", user->name);
+        if (strcmp(buffer, "END") == 0)
             break;
-        }
+
+        printf("%s\n", buffer);
     }
+    return 0;
 }
 
-// Select match
+
+void enter_name(int sock, Player_t *user) {
+    char name[BUFFER_SIZE];
+    char resp[BUFFER_SIZE];
+    while (1) {
+        if (recv_string(sock, resp, BUFFER_SIZE) < 0) {
+            perror("recv_string");
+            exit(1);
+        }
+        printf("%s\n", resp);
+
+        if (fgets(name, sizeof name, stdin) == NULL) {
+            perror("fgets");
+            exit(1);
+        }
+        name[strcspn(name, "\n")] = '\0';
+
+        if (send_string(sock, name) < 0) {
+            perror("send_string");
+            exit(1);
+        }
+
+        if (recv_string(sock, resp, BUFFER_SIZE) < 0) {
+            perror("recv_string");
+            exit(1);
+        }
+
+        if (strstr(resp, "Name already taken. Try again:") != NULL) {
+            printf("%s\n", resp);
+            continue;
+        } else {
+            *user = create_user(name, sock);
+            printf("You Joined as %s\n", user->name); // e.g. "You Join!"
+        }
+        break;
+    }
+}
 void select_match(int sock, Player_t player) {
     char buffer[BUFFER_SIZE];
     while (1) {
-        recv_data(sock, buffer, BUFFER_SIZE, NULL);
-
-        // Replace spaces with newlines for better display
-        for (int i=0; buffer[i]; i++) {
-            if (buffer[i] == ' ') buffer[i] = '\n';
+        if (recv_string(sock, buffer, BUFFER_SIZE) < 0) {
+            perror("recv_string");
+            exit(1);
         }
+        printf("Available Matches:\n");
+        replace_space_with_newline(buffer);
         printf("%s\n", buffer);
-
         printf("Select Match ID: ");
-        fgets(buffer, sizeof(buffer), stdin);
+        if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
+            perror("fgets");
+            exit(1);
+        }
         buffer[strcspn(buffer, "\n")] = '\0';
 
-        send_data(sock, buffer, strlen(buffer)+1);
+        if (send_string(sock, buffer) < 0) {
+            perror("send_string");
+            exit(1);
+        }
 
-        recv_data(sock, buffer, BUFFER_SIZE, NULL);
-        if (strstr(buffer, "Invalid Match ID") != NULL) {
+        if (recv_string(sock, buffer, BUFFER_SIZE) < 0) {
+            perror("recv_string");
+            exit(1);
+        }
+
+        if (strcmp(buffer, "Invalid Match ID Or Match is already full. Try again:") == 0) {
             printf("%s\n", buffer);
             continue;
         } else {
-            printf("%s\n", buffer); // e.g., "You Join!"
+            printf("%s\n", buffer);  // e.g., "You Join!"
             break;
         }
     }
 }
 
+// int setReady(int sock, Player_t player){
+//     char buffer[BUFFER_SIZE];
+//     char input[2];
+//     printf("click r for ready or q to quit\n");
+//     scanf("%s",input);
+//     if(input[0] == 'q'){
+//         return 0;
+//     }
+//     snprintf(buffer,4,"%d %d",player.matchid,player.id);
+//     send_string(sock,buffer);
+//     return 1;
+// }
+
 int main() {
     int sock;
-    struct sockaddr_in server_addr;
     Player_t player;
-
+    struct sockaddr_in server_addr;
     sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) { perror("Socket error"); exit(1); }
-
+    if (sock < 0) {
+        perror("Socket error");
+        exit(1);
+    }
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(PORT);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Connect error"); exit(1);
+        perror("Connect error");
+        exit(1);
     }
 
-    printf("Connected to server.\n");
-
-    enter_name(sock, &player);
-    select_match(sock, player);
-
+    printf("Connected to server. Listening for messages...\n");
+    enter_name(sock,&player);
+    select_match(sock,player);
     close(sock);
     return 0;
 }
+

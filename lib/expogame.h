@@ -49,5 +49,5 @@ Match_t create_match(int id, int capacity);
 char* print_matches(Match_t* matches,int len,char* buffer);
 void replace_space_with_newline(char *str);
 int is_match_full(Match_t match);
-void add_match_player(Match_t match, Player_t player);
+void add_match_player(Match_t *match, Player_t player);
 void remove_match_player(Match_t match, int playerid);
