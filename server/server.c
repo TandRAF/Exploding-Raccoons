@@ -182,7 +182,7 @@ int main() {
         exit(1);
     }
 
-    if (listen(server_sock, 5) < 0) {
+    if (listen(server_sock, MATCH_NUM*5) < 0) {
         perror("Listen error");
         close(server_sock);
         exit(1);
@@ -199,7 +199,7 @@ int main() {
         *sock_ptr = client_sock;
         pthread_t tid;
         pthread_create(&tid, NULL, client_thread, sock_ptr);
-        pthread_detach(tid); // prevents memory leaks
+        pthread_detach(tid);
     }
     close(server_sock);
     return 0;

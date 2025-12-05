@@ -11,8 +11,6 @@
 
 int send_string(int sock, const char *str) {
     char message[BUFFER_SIZE];
-
-    // Prevent overflow:
     size_t len = snprintf(message, sizeof(message), "%s\n", str);
 
     if (len >= sizeof(message)) {
@@ -28,23 +26,18 @@ int send_string(int sock, const char *str) {
             perror("send_string error");
             return -1;
         }
-
         total += sent;
     }
-
     return 0;
 }
 
 
 int recv_string(int sock, char *buffer, size_t max_len) {
     size_t total = 0;
-
     while (total < max_len - 1) {
         char c;
         ssize_t received = recv(sock, &c, 1, 0);
-
         if (received == 0) {
-            // connection closed cleanly
             return -1;
         }
         if (received < 0) {
@@ -52,12 +45,11 @@ int recv_string(int sock, char *buffer, size_t max_len) {
             return -1;
         }
 
-        if (c == '\n') break;   // end of message
-        if (c == '\0') break;   // just in case
+        if (c == '\n') break;
+        if (c == '\0') break;
 
         buffer[total++] = c;
     }
-
     buffer[total] = '\0';
     return 0;
 }
