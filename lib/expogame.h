@@ -36,6 +36,7 @@ typedef struct {
 Player_t create_user(const char* name,int sock);
 int exist_player(Player_t *players, const char* name, int capacity);
 Card_t create_card(int id);
+void print_player(Player_t player);
 void add_player(Player_t *players, Player_t player, int *cappacity);
 Player_t get_player(Player_t *players, int id, int capacity);
 void remove_player(Player_t *players, int id, int *capacity);
@@ -50,4 +51,7 @@ char* print_matches(Match_t* matches,int len,char* buffer);
 void replace_space_with_newline(char *str);
 int is_match_full(Match_t match);
 void add_match_player(Match_t *match, Player_t player);
-void remove_match_player(Match_t match, int playerid);
+void remove_match_player(Match_t *match, int playerid);
+void verify_ready(Match_t *match);
+void remove_match_player(Match_t *match, int playerid);
+Match_t* get_player_match(Match_t* matches, int playerid);

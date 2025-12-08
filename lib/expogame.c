@@ -10,6 +10,7 @@ Player_t create_user(const char* name,int sock) {
     u.name = strdup(name);
     u.id = sock;
     u.matchid = -1;
+    u.isready = 0;
     return u;
 }
 
@@ -44,6 +45,10 @@ void remove_player(Player_t *players, int id, int *capacity) {
             return;
         }
     }
+}
+void print_player(Player_t player) {
+    printf("Player ID: %d, Name: %s, Match ID: %d, Is Ready: %d\n",
+           player.id, player.name, player.matchid, player.isready);
 }
 // -----------------
 // CARD
@@ -126,14 +131,35 @@ void add_match_player(Match_t *match, Player_t player){
     match->players[match->count] = player;
     match->count++;
 }
-void remove_match_player(Match_t match, int playerid){
-    for(int i=0; i<match.count; i++){
-        if(match.players[i].id == playerid){
-            for(int j=i; j<match.count-1; j++){
-                match.players[j] = match.players[j+1];
+void remove_match_player(Match_t *match, int playerid){
+    for(int i = 0; i < match->count; i++){
+        if(match->players[i].id == playerid){
+            for(int j = i; j < match->count - 1; j++){
+                match->players[j] = match->players[j + 1];
             }
-            match.count--;
+            match->count--;
             return;
         }
     }
+}
+
+Match_t* get_player_match(Match_t* matches, int playerid){
+    for(int i=0; i<3; i++){
+        for(int j=0; j<matches[i].count; j++){
+            if(matches[i].players[j].id == playerid){
+                return &matches[i];
+            }
+        }
+    }
+    return NULL;
+}
+
+void verify_ready(Match_t *match){
+    int ready_count =0;
+    for(int i=0; i<match->count; i++){
+        if(match->players[i].isready){
+            ready_count++;
+        }
+    }
+    match->ready = ready_count;
 }

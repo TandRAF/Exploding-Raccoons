@@ -142,18 +142,26 @@ void select_match(int sock, Player_t player) {
     }
 }
 
-// int setReady(int sock, Player_t player){
-//     char buffer[BUFFER_SIZE];
-//     char input[2];
-//     printf("click r for ready or q to quit\n");
-//     scanf("%s",input);
-//     if(input[0] == 'q'){
-//         return 0;
-//     }
-//     snprintf(buffer,4,"%d %d",player.matchid,player.id);
-//     send_string(sock,buffer);
-//     return 1;
-// }
+void setReady(int sock, Player_t player){
+    char buffer[BUFFER_SIZE];
+        if (recv_string(sock, buffer, BUFFER_SIZE) < 0) {
+            perror("recv_string");
+            exit(1);
+        }
+        printf("%s\n", buffer);
+        while (strcmp(buffer,"y"))
+        {
+            scanf("%s",buffer);
+        }
+        if (send_string(sock, buffer) < 0) {
+            player.isready = 1;
+            printf("You are Ready.\n");
+            perror("send_string");
+            exit(1);        
+        }
+}
+
+
 
 int main() {
     int sock;
@@ -176,6 +184,11 @@ int main() {
     printf("Connected to server. Listening for messages...\n");
     enter_name(sock,&player);
     select_match(sock,player);
+    setReady(sock,player);
+    while (1)
+    {
+    }
+    
     close(sock);
     return 0;
 }
