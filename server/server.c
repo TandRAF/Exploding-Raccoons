@@ -17,11 +17,14 @@ Player_t Players[MATCH_NUM*5];
 pthread_mutex_t lock; 
 
 int players_count = 0;
-int players_capacity = MATCH_NUM * 5;
+int players_capacity = MATCH_NUM * 5; 
+
+// ------------------------------------------------------------------
+// NETWORK HELPERS
+// ------------------------------------------------------------------
 
 int send_string(int sock, const char *str) {
     char message[BUFFER_SIZE];
-
     size_t len = snprintf(message, sizeof(message), "%s\n", str);
 
     if (len >= sizeof(message)) {
@@ -32,29 +35,22 @@ int send_string(int sock, const char *str) {
     size_t total = 0;
     while (total < len) {
         ssize_t sent = send(sock, message + total, len - total, 0);
-
         if (sent < 0) {
             perror("send_string error");
             return -1;
         }
-
         total += sent;
     }
-
     return 0;
 }
 
-
 int recv_string(int sock, char *buffer, size_t max_len) {
     size_t total = 0;
-
     while (total < max_len - 1) {
         char c;
         ssize_t received = recv(sock, &c, 1, 0);
 
-        if (received == 0) {
-            return -1;
-        }
+        if (received == 0) return -1; // Connection closed
         if (received < 0) {
             perror("recv error");
             return -1;
@@ -65,133 +61,227 @@ int recv_string(int sock, char *buffer, size_t max_len) {
 
         buffer[total++] = c;
     }
-
     buffer[total] = '\0';
     return 0;
 }
 
+void broadcast_msg(Match_t *m, const char* msg) {
+    for (int i = 0; i < m->count; i++) {
+        if (m->players[i].id > 0) {
+            send_string(m->players[i].id, msg);
+        }
+    }
+}
 
+// ------------------------------------------------------------------
+// LOBBY LOGIC
+// ------------------------------------------------------------------
 
-// Enter player name and create user
 void enter_name(int client_sock) { 
     char buffer[BUFFER_SIZE];
-    while (1)
-    {       
-        if (send_string(client_sock, "Enter your name:") < 0) {
-            perror("send_string");
-            exit(1);
-        }
+    while (1) {       
+        if (send_string(client_sock, "Enter your name:") < 0) exit(1);
+        if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) exit(1);
 
-        if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) {
-            perror("recv_string");
-            exit(1);
-        }
-
+        pthread_mutex_lock(&lock);
         if (!exist_player(Players, buffer, players_count)) {
-            send_string(client_sock, "You Join!");
-            Player_t user = create_user(buffer,client_sock);
+            Player_t user = create_user(buffer, client_sock);
             print_player(user);
-            printf("%s joined the game.\n", user.name);
-            pthread_mutex_lock(&lock);
             add_player(Players, user, &players_count);
             pthread_mutex_unlock(&lock);
+            
+            send_string(client_sock, "You Join!");
+            printf("%s joined the game.\n", user.name);
+            break;
         } else {
+            pthread_mutex_unlock(&lock);
             send_string(client_sock, "Name already taken. Try again:");
-            printf("%d : Continue Loop for name\n",client_sock);
             continue;
         }
-        break;
     }
 }
 
 void select_match(int client_sock) {
     char buffer[BUFFER_SIZE];
     buffer[0] = '\0';
+    
     print_matches(matches, MATCH_NUM, buffer);
+    
     pthread_mutex_lock(&lock);
-    Player_t player = get_player(Players,client_sock,players_count);
+    Player_t player = get_player(Players, client_sock, players_count);
     pthread_mutex_unlock(&lock);
-    while (1)
-    {       
-        if (send_string(client_sock, buffer) < 0) {
-            perror("send_string");
-            exit(1);
-        }
-        printf("Available Matches:\n");
-        replace_space_with_newline(buffer);
-        printf("\n%s\n", buffer);
 
-        if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) {
-            perror("recv_string");
-            exit(1);
-        }
+    while (1) {       
+        if (send_string(client_sock, buffer) < 0) exit(1);
+        
+        // Display nicely on server console
+        char display_buf[BUFFER_SIZE];
+        strcpy(display_buf, buffer);
+        replace_space_with_newline(display_buf);
+        printf("Available Matches:\n%s\n", display_buf);
+
+        if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) exit(1);
+        
         int id = atoi(buffer);
-        printf("Client %d selected Match ID: %d\n", client_sock, id);
-        id = id - 1;
-        if (id < 0 || id >= MATCH_NUM || is_match_full(matches[id])) {
-            send_string(client_sock, "Invalid Match ID Or Match is already full. Try again:");
+        id = id - 1; // Adjust for 0-index
+
+        if (id < 0 || id >= MATCH_NUM) {
+            send_string(client_sock, "Invalid Match ID. Try again:");
             continue;
-        }else{
-            send_string(client_sock, "You Join!");
-            printf("%s joined Match %d.\n", player.name, id);
-            pthread_mutex_lock(&lock);
-            add_match_player(&matches[id], player);
-            pthread_mutex_unlock(&lock);
-            break;
         }
+
+        pthread_mutex_lock(&lock);
+        if (is_match_full(matches[id])) {
+            pthread_mutex_unlock(&lock);
+            send_string(client_sock, "Match is full. Try again:");
+            continue;
+        }
+
+        send_string(client_sock, "You Join!");
+        printf("%s joined Match %d.\n", player.name, id);
+        add_match_player(&matches[id], player);
+        pthread_mutex_unlock(&lock);
+        break;
     }
 }
 
 void setReady(int client_sock){
     char buffer[BUFFER_SIZE];
-    if (send_string(client_sock, "Set Ready? (y):") < 0) {
-        perror("send_string");
-        return;
-    }
-
-    if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) {
-        perror("recv_string");
-        return;
-    }
+    if (send_string(client_sock, "Set Ready? (y):") < 0) return;
+    if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) return;
 
     if (strcmp(buffer, "y") == 0) {
-        for (int i = 0; i < players_count; i++) {
-            if (Players[i].id == client_sock) {
-                Players[i].isready = 1;
-                printf("%s is Ready.\n", Players[i].name);
-                break;
+        pthread_mutex_lock(&lock);
+        Match_t *m = get_player_match(matches, client_sock);
+        if (m) {
+            for (int i = 0; i < m->count; i++) {
+                if (m->players[i].id == client_sock) {
+                    m->players[i].isready = 1;
+                    printf("%s is Ready.\n", m->players[i].name);
+                    verify_ready(m);
+                    break;
+                }
             }
         }
+        pthread_mutex_unlock(&lock);
     }
 }
+
+// ------------------------------------------------------------------
+// THREAD LOOP
+// ------------------------------------------------------------------
 
 void* client_thread(void* arg) {
     int client_sock = *(int*)arg;
     free(arg);
+
     enter_name(client_sock);
-    print_player(get_player(Players,client_sock,players_count));
     select_match(client_sock);
     setReady(client_sock);
-    while (1)
-    {
+
+    while (1) {
+        pthread_mutex_lock(&lock);
+        Match_t *my_match = get_player_match(matches, client_sock);
+
+        if (!my_match) {
+            pthread_mutex_unlock(&lock);
+            break; 
+        }
+        if (my_match->state == STATE_LOBBY) {
+            if (my_match->ready == my_match->count && my_match->count >= 2) {
+                my_match->state = STATE_SETUP;
+                // Run Setup logic (System call -1)
+                run_game_fsm(my_match, -1, 0, 0, -1);
+                
+                char msg[100];
+                snprintf(msg, 100, "Game Started! Player %s goes first.", 
+                         my_match->players[my_match->current_player_idx].name);
+                broadcast_msg(my_match, msg);
+            }
+        }
+        else if (my_match->state == STATE_PLAYER_TURN) {
+            int current_idx = my_match->current_player_idx;
+            if (my_match->players[current_idx].id == client_sock) {
+                
+                pthread_mutex_unlock(&lock);
+                send_string(client_sock, "YOUR TURN:\n[0] Draw\n[1] Play Specific Card\n[2] See Hand\n[3] List Players");
+                
+                char buffer[BUFFER_SIZE];
+                if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) break;
+                
+                int action = atoi(buffer);
+                int card_idx = 0; 
+                int target_id = -1;
+                if (action == 2) {
+                    char hand_msg[2048];
+                    pthread_mutex_lock(&lock);
+                    print_hand(&my_match->players[current_idx].hand, hand_msg);
+                    pthread_mutex_unlock(&lock);
+                    send_string(client_sock, hand_msg);
+                    continue; 
+                }
+                else if (action == 3) {
+                    char list_msg[1024] = "Players in Match:\n";
+                    pthread_mutex_lock(&lock);
+                    for(int i=0; i<my_match->count; i++) {
+                        char line[100];
+                        snprintf(line, 100, "ID: %d - %s\n", my_match->players[i].id, my_match->players[i].name);
+                        strcat(list_msg, line);
+                    }
+                    pthread_mutex_unlock(&lock);
+                    send_string(client_sock, list_msg);
+                    continue; // Loop back to menu
+                }
+
+                if (action == 1) {
+                    send_string(client_sock, "Enter Card Index (look at [2] See Hand):");
+                    if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) break;
+                    card_idx = atoi(buffer);
+
+                    send_string(client_sock, "Enter Target Player ID (or -1 if none):");
+                    if (recv_string(client_sock, buffer, BUFFER_SIZE) >= 0) {
+                        target_id = atoi(buffer);
+                    }
+                }
+
+                pthread_mutex_lock(&lock);
+                run_game_fsm(my_match, client_sock, action, card_idx, target_id);
+            } 
+        }
+        else if (my_match->state == STATE_GAME_OVER) {
+            send_string(client_sock, "GAME OVER! Thanks for playing.");
+            pthread_mutex_unlock(&lock);
+            break;
+        }
+
+        pthread_mutex_unlock(&lock);
+        usleep(200000);
     }
+
     close(client_sock);
     return NULL;
 }
+
+// ------------------------------------------------------------------
+// MAIN
+// ------------------------------------------------------------------
 
 int main() {
     pthread_mutex_init(&lock, NULL);
     int server_sock;
     struct sockaddr_in server_addr;
     int opt = 1;
-    for(int i=0;i<MATCH_NUM;i++){
-        matches[i] = create_match(i,5);
+
+    for(int i=0; i<MATCH_NUM; i++){
+        matches[i] = create_match(i, 5);
+        matches[i].state = STATE_LOBBY; 
     }
+
     server_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (server_sock < 0) { perror("Socket error"); exit(1); }
 
     if (setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        perror("setsockopt(SO_REUSEADDR) failed");
+        perror("setsockopt");
         close(server_sock);
         exit(1);
     }
@@ -213,6 +303,7 @@ int main() {
     }
 
     printf("Server listening on port %d...\n", PORT);
+
     while (1) {
         int client_sock = accept(server_sock, NULL, NULL);
         if (client_sock < 0) {
@@ -225,6 +316,7 @@ int main() {
         pthread_create(&tid, NULL, client_thread, sock_ptr);
         pthread_detach(tid);
     }
+
     close(server_sock);
     return 0;
 }

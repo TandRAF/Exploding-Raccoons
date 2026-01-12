@@ -2,17 +2,37 @@
 #include <stdlib.h>
 
 // -----------------
+// ENUMS & CONSTANTS
+// -----------------
+typedef enum {
+    CARD_NOPE,
+    CARD_ATTACK,
+    CARD_SKIP,
+    CARD_FAVOR, // <--- New Card Type
+    CARD_SHUFFLE,
+    CARD_SEE_FUTURE,
+    CARD_DEFUSE,
+    CARD_EXPLODING_KITTEN,
+    CARD_GENERIC
+} CardType;
+
+typedef enum {
+    STATE_LOBBY,
+    STATE_SETUP,
+    STATE_PLAYER_TURN,
+    STATE_RESOLVE_ACTION,
+    STATE_DRAW_PHASE,
+    STATE_EXPLOSION,
+    STATE_GAME_OVER
+} GameState;
+
+// -----------------
 // STRUCTS
 // -----------------
 typedef struct {
-    int matchid;
-    int id;
-    char* name;
-    int isready;
-} Player_t;
-
-typedef struct {
-    int id;
+    int id; // Unique ID
+    CardType type;
+    char name[32];
 } Card_t;
 
 typedef struct {
@@ -20,13 +40,31 @@ typedef struct {
     int count;
     int capacity;
     Card_t* cards;
-} Bunch;
+} Bunch; // Used for Deck, Discard Pile, and Player Hands
+
+typedef struct {
+    int matchid;
+    int id; // Socket ID
+    char* name;
+    int isready;
+    int is_eliminated;
+    Bunch hand; // Player's hand
+} Player_t;
 
 typedef struct {
     int id;
     int count;
     int capacity;
     int ready;
+    
+    // FSM Variables
+    GameState state;
+    int current_player_idx;
+    int attack_turns_accumulated; // For "Attack" card stacking
+    
+    // Game Objects
+    Bunch deck;
+    Bunch discard_pile;
     Player_t players[5];
 } Match_t;
 
@@ -55,3 +93,9 @@ void remove_match_player(Match_t *match, int playerid);
 void verify_ready(Match_t *match);
 void remove_match_player(Match_t *match, int playerid);
 Match_t* get_player_match(Match_t* matches, int playerid);
+
+void init_game_logic(Match_t *m);
+void run_game_fsm(Match_t *m, int player_id, int action_code, int card_idx, int target_id);
+void shuffle_bunch(Bunch *b);
+const char* get_card_name(CardType type);
+char* print_hand(Bunch* hand, char* buffer);
