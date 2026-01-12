@@ -1,40 +1,42 @@
 #include "expogame.h"
 #include <string.h>
 #include <stdio.h>
+#include <time.h> // Required for random
 
 // -----------------
 // USER
 // -----------------
-Player_t create_user(const char* name,int sock) {
+Player_t create_user(const char* name, int sock) {
     Player_t u;
     u.name = strdup(name);
     u.id = sock;
     u.matchid = -1;
     u.isready = 0;
+    u.is_eliminated = 0;
+    u.hand = create_bunch(20); // Initialize hand with capacity 20
     return u;
 }
 
 int exist_player(Player_t *players, const char* name, int capacity) {
     for (int i = 0; i < capacity; i++) {
-        if (strcmp(players[i].name, name) == 0) {
-            return 1; // Player exists
-        }
+        if (strcmp(players[i].name, name) == 0) return 1;
     }
-    return 0; // Player does not exist
+    return 0;
 }
+
 Player_t get_player(Player_t *players, int id, int capacity) {
     for (int i = 0; i < capacity; i++) {
-        if (players[i].id == id) {
-            return players[i]; // Return the found player
-        }
+        if (players[i].id == id) return players[i];
     }
     Player_t empty = { .matchid = -1, .id = -1, .name = NULL, .isready = 0 };
-    return empty; // Return an empty player if not found
+    return empty;
 }
+
 void add_player(Player_t *players, Player_t player, int *cappacity) {
     players[*cappacity] = player;
     *cappacity += 1;
 }
+
 void remove_player(Player_t *players, int id, int *capacity) {
     for (int i = 0; i < *capacity; i++) {
         if (players[i].id == id) {
@@ -46,10 +48,12 @@ void remove_player(Player_t *players, int id, int *capacity) {
         }
     }
 }
+
 void print_player(Player_t player) {
     printf("Player ID: %d, Name: %s, Match ID: %d, Is Ready: %d\n",
            player.id, player.name, player.matchid, player.isready);
 }
+
 // -----------------
 // CARD
 // -----------------
@@ -83,10 +87,7 @@ void bunch_push(Bunch* b, Card_t card) {
 
 Card_t bunch_pop(Bunch* b) {
     Card_t empty = { -1 };
-    if (b->count == 0) {
-        printf("Bunch is empty!\n");
-        return empty;
-    }
+    if (b->count == 0) return empty;
     Card_t card = b->cards[b->current];
     b->current = (b->current + 1) % b->capacity;
     b->count--;
@@ -94,8 +95,30 @@ Card_t bunch_pop(Bunch* b) {
 }
 
 void free_bunch(Bunch* b) {
-    free(b->cards);
+    if(b->cards) free(b->cards);
     b->cards = NULL;
+}
+
+// New: Fisher-Yates Shuffle
+void shuffle_bunch(Bunch *b) {
+    if (b->count <= 1) return;
+    srand(time(NULL)); 
+    // Note: In a real server, srand should be called once in main, not here.
+    // For this context, we assume main calls it or we do it here safely enough for a game.
+    
+    // We need to linearize the circular buffer to shuffle efficiently, 
+    // or just swap based on logical indices.
+    for (int i = b->count - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        
+        // Translate logical indices to physical indices
+        int idx_i = (b->current + i) % b->capacity;
+        int idx_j = (b->current + j) % b->capacity;
+
+        Card_t temp = b->cards[idx_i];
+        b->cards[idx_i] = b->cards[idx_j];
+        b->cards[idx_j] = temp;
+    }
 }
 
 // -----------------
@@ -103,8 +126,7 @@ void free_bunch(Bunch* b) {
 // -----------------
 void replace_space_with_newline(char *str) {
     for (int i = 0; str[i] != '\0'; i++) {
-        if (str[i] == ' ')
-            str[i] = '\n';
+        if (str[i] == ' ') str[i] = '\n';
     }
 }
 
@@ -113,24 +135,29 @@ Match_t create_match(int id, int capacity) {
     m.id = id;
     m.count = 0;
     m.capacity = capacity;
+    m.started = 0; // Init started flag
+    m.turn_index = 0;
     return m;
 }
 
-char* print_matches(Match_t* matches,int len,char* buffer){
+char* print_matches(Match_t* matches, int len, char* buffer){
     char temp[100];
     for(int i =0; i<len; i++){
-        snprintf(temp,100,"Match-%d:%d/%d ",i,matches[i].count,matches[i].capacity);
+        snprintf(temp,100,"Match-%d:%d/%d ",i+1,matches[i].count,matches[i].capacity);
         strcat(buffer,temp);
     }
     return buffer;
 }
+
 int is_match_full(Match_t match){
     return match.count == match.capacity;
 }
+
 void add_match_player(Match_t *match, Player_t player){
     match->players[match->count] = player;
     match->count++;
 }
+
 void remove_match_player(Match_t *match, int playerid){
     for(int i = 0; i < match->count; i++){
         if(match->players[i].id == playerid){
@@ -144,6 +171,7 @@ void remove_match_player(Match_t *match, int playerid){
 }
 
 Match_t* get_player_match(Match_t* matches, int playerid){
+    // Assuming 3 matches as per server define
     for(int i=0; i<3; i++){
         for(int j=0; j<matches[i].count; j++){
             if(matches[i].players[j].id == playerid){
