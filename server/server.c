@@ -19,51 +19,9 @@ pthread_mutex_t lock;
 int players_count = 0;
 int players_capacity = MATCH_NUM * 5; 
 
-// ------------------------------------------------------------------
-// NETWORK HELPERS
-// ------------------------------------------------------------------
-
-int send_string(int sock, const char *str) {
-    char message[BUFFER_SIZE];
-    size_t len = snprintf(message, sizeof(message), "%s\n", str);
-
-    if (len >= sizeof(message)) {
-        fprintf(stderr, "send_string: message too long\n");
-        return -1;
-    }
-
-    size_t total = 0;
-    while (total < len) {
-        ssize_t sent = send(sock, message + total, len - total, 0);
-        if (sent < 0) {
-            perror("send_string error");
-            return -1;
-        }
-        total += sent;
-    }
-    return 0;
-}
-
-int recv_string(int sock, char *buffer, size_t max_len) {
-    size_t total = 0;
-    while (total < max_len - 1) {
-        char c;
-        ssize_t received = recv(sock, &c, 1, 0);
-
-        if (received == 0) return -1; // Connection closed
-        if (received < 0) {
-            perror("recv error");
-            return -1;
-        }
-
-        if (c == '\n') break;
-        if (c == '\0') break;
-
-        buffer[total++] = c;
-    }
-    buffer[total] = '\0';
-    return 0;
-}
+// --- NETWORK HELPERS ---
+// NOTĂ: send_string și recv_string au fost mutate în expogame.c
+// Am păstrat doar broadcast_msg aici pentru că este specifică logicii de server
 
 void broadcast_msg(Match_t *m, const char* msg) {
     for (int i = 0; i < m->count; i++) {
@@ -114,7 +72,6 @@ void select_match(int client_sock) {
     while (1) {       
         if (send_string(client_sock, buffer) < 0) exit(1);
         
-        // Display nicely on server console
         char display_buf[BUFFER_SIZE];
         strcpy(display_buf, buffer);
         replace_space_with_newline(display_buf);
@@ -123,7 +80,7 @@ void select_match(int client_sock) {
         if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) exit(1);
         
         int id = atoi(buffer);
-        id = id - 1; // Adjust for 0-index
+        id = id - 1; 
 
         if (id < 0 || id >= MATCH_NUM) {
             send_string(client_sock, "Invalid Match ID. Try again:");
@@ -187,24 +144,27 @@ void* client_thread(void* arg) {
             pthread_mutex_unlock(&lock);
             break; 
         }
+
+        // --- LOGICA DE START JOC ---
         if (my_match->state == STATE_LOBBY) {
             if (my_match->ready == my_match->count && my_match->count >= 2) {
                 my_match->state = STATE_SETUP;
-                // Run Setup logic (System call -1)
                 run_game_fsm(my_match, -1, 0, 0, -1);
                 
                 char msg[100];
                 snprintf(msg, 100, "Game Started! Player %s goes first.", 
                          my_match->players[my_match->current_player_idx].name);
-                broadcast_msg(my_match, msg);
+                broadcast_msg(my_match, msg); 
             }
         }
-        else if (my_match->state == STATE_PLAYER_TURN) {
+        // --- LOGICA DE TURN ---
+       else if (my_match->state == STATE_PLAYER_TURN) {
             int current_idx = my_match->current_player_idx;
+            
             if (my_match->players[current_idx].id == client_sock) {
-                
                 pthread_mutex_unlock(&lock);
-                send_string(client_sock, "YOUR TURN:\n[0] Draw\n[1] Play Specific Card\n[2] See Hand\n[3] List Players");
+                
+                send_string(client_sock, "YOUR TURN: [0] Draw, [1] Play Card, [2] See Hand");
                 
                 char buffer[BUFFER_SIZE];
                 if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) break;
@@ -212,6 +172,7 @@ void* client_thread(void* arg) {
                 int action = atoi(buffer);
                 int card_idx = 0; 
                 int target_id = -1;
+
                 if (action == 2) {
                     char hand_msg[2048];
                     pthread_mutex_lock(&lock);
@@ -220,33 +181,60 @@ void* client_thread(void* arg) {
                     send_string(client_sock, hand_msg);
                     continue; 
                 }
-                else if (action == 3) {
-                    char list_msg[1024] = "Players in Match:\n";
-                    pthread_mutex_lock(&lock);
-                    for(int i=0; i<my_match->count; i++) {
-                        char line[100];
-                        snprintf(line, 100, "ID: %d - %s\n", my_match->players[i].id, my_match->players[i].name);
-                        strcat(list_msg, line);
-                    }
-                    pthread_mutex_unlock(&lock);
-                    send_string(client_sock, list_msg);
-                    continue; // Loop back to menu
-                }
 
                 if (action == 1) {
-                    send_string(client_sock, "Enter Card Index (look at [2] See Hand):");
+                    send_string(client_sock, "Enter Card Index:");
                     if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) break;
                     card_idx = atoi(buffer);
-
-                    send_string(client_sock, "Enter Target Player ID (or -1 if none):");
+                    
+                    // Citire Target ID (trimis mereu de client, chiar daca e -1)
                     if (recv_string(client_sock, buffer, BUFFER_SIZE) >= 0) {
                         target_id = atoi(buffer);
                     }
                 }
 
                 pthread_mutex_lock(&lock);
+                
+                char played_card_name[64] = "o carte";
+                if (action == 1 && card_idx < my_match->players[current_idx].hand.count) {
+                    Card_t c = my_match->players[current_idx].hand.cards[card_idx];
+                    strcpy(played_card_name, get_card_name(c.type));
+                }
+
                 run_game_fsm(my_match, client_sock, action, card_idx, target_id);
-            } 
+
+                char broadcast_buf[256];
+                if (action == 1) {
+                    snprintf(broadcast_buf, 256, "LOG: Jucatorul %s a jucat %s", 
+                             my_match->players[current_idx].name, played_card_name);
+                } else {
+                    snprintf(broadcast_buf, 256, "LOG: Jucatorul %s a tras o carte.", 
+                             my_match->players[current_idx].name);
+                }
+
+                for (int i = 0; i < my_match->count; i++) {
+                    send_string(my_match->players[i].id, broadcast_buf);
+                    
+                    char turn_info[128];
+                    snprintf(turn_info, 128, "LOG: Este randul lui: %s", 
+                             my_match->players[my_match->current_player_idx].name);
+                    send_string(my_match->players[i].id, turn_info);
+
+                    if (my_match->players[i].id == my_match->players[my_match->current_player_idx].id) {
+                        send_string(my_match->players[i].id, "YOUR TURN");
+                    }
+
+                    if (my_match->players[i].id == client_sock) {
+                        char hand_auto[2048];
+                        print_hand(&my_match->players[i].hand, hand_auto);
+                        send_string(my_match->players[i].id, hand_auto);
+                    }
+                }
+            } else {
+                pthread_mutex_unlock(&lock);
+                usleep(500000); 
+                continue;
+            }
         }
         else if (my_match->state == STATE_GAME_OVER) {
             send_string(client_sock, "GAME OVER! Thanks for playing.");
@@ -261,10 +249,6 @@ void* client_thread(void* arg) {
     close(client_sock);
     return NULL;
 }
-
-// ------------------------------------------------------------------
-// MAIN
-// ------------------------------------------------------------------
 
 int main() {
     pthread_mutex_init(&lock, NULL);

@@ -8,7 +8,7 @@ typedef enum {
     CARD_NOPE,
     CARD_ATTACK,
     CARD_SKIP,
-    CARD_FAVOR, // <--- New Card Type
+    CARD_FAVOR,
     CARD_SHUFFLE,
     CARD_SEE_FUTURE,
     CARD_DEFUSE,
@@ -40,7 +40,7 @@ typedef struct {
     int count;
     int capacity;
     Card_t* cards;
-} Bunch; // Used for Deck, Discard Pile, and Player Hands
+} Bunch; 
 
 typedef struct {
     int matchid;
@@ -48,7 +48,7 @@ typedef struct {
     char* name;
     int isready;
     int is_eliminated;
-    Bunch hand; // Player's hand
+    Bunch hand; 
 } Player_t;
 
 typedef struct {
@@ -57,12 +57,10 @@ typedef struct {
     int capacity;
     int ready;
     
-    // FSM Variables
     GameState state;
     int current_player_idx;
-    int attack_turns_accumulated; // For "Attack" card stacking
+    int attack_turns_accumulated; 
     
-    // Game Objects
     Bunch deck;
     Bunch discard_pile;
     Player_t players[5];
@@ -91,11 +89,13 @@ int is_match_full(Match_t match);
 void add_match_player(Match_t *match, Player_t player);
 void remove_match_player(Match_t *match, int playerid);
 void verify_ready(Match_t *match);
-void remove_match_player(Match_t *match, int playerid);
 Match_t* get_player_match(Match_t* matches, int playerid);
 
-void init_game_logic(Match_t *m);
 void run_game_fsm(Match_t *m, int player_id, int action_code, int card_idx, int target_id);
 void shuffle_bunch(Bunch *b);
 const char* get_card_name(CardType type);
 char* print_hand(Bunch* hand, char* buffer);
+
+
+int send_string(int sock, const char *str);
+int recv_string(int sock, char *buffer, size_t max_len);
