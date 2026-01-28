@@ -1,3 +1,4 @@
+// lib/expogame.h
 #pragma once
 #include <stdlib.h>
 
@@ -8,11 +9,16 @@ typedef enum {
     CARD_NOPE,
     CARD_ATTACK,
     CARD_SKIP,
-    CARD_FAVOR, // <--- New Card Type
+    CARD_FAVOR, 
     CARD_SHUFFLE,
     CARD_SEE_FUTURE,
     CARD_DEFUSE,
     CARD_EXPLODING_KITTEN,
+    CARD_RACOON_TACO,
+    CARD_RACOON_MELON,
+    CARD_RACOON_POTATO,
+    CARD_RACOON_BEARD,
+    CARD_RACOON_RAINBOW,
     CARD_GENERIC
 } CardType;
 
@@ -30,7 +36,7 @@ typedef enum {
 // STRUCTS
 // -----------------
 typedef struct {
-    int id; // Unique ID
+    int id;
     CardType type;
     char name[32];
 } Card_t;
@@ -40,7 +46,7 @@ typedef struct {
     int count;
     int capacity;
     Card_t* cards;
-} Bunch; // Used for Deck, Discard Pile, and Player Hands
+} Bunch;
 
 typedef struct {
     int matchid;
@@ -48,7 +54,7 @@ typedef struct {
     char* name;
     int isready;
     int is_eliminated;
-    Bunch hand; // Player's hand
+    Bunch hand;
 } Player_t;
 
 typedef struct {
@@ -60,7 +66,7 @@ typedef struct {
     // FSM Variables
     GameState state;
     int current_player_idx;
-    int attack_turns_accumulated; // For "Attack" card stacking
+    int attack_turns_accumulated; 
     
     // Game Objects
     Bunch deck;
@@ -99,3 +105,5 @@ void run_game_fsm(Match_t *m, int player_id, int action_code, int card_idx, int 
 void shuffle_bunch(Bunch *b);
 const char* get_card_name(CardType type);
 char* print_hand(Bunch* hand, char* buffer);
+int get_player_id_by_name(Match_t *m, const char* name);
+int card_needs_target(CardType type);

@@ -6,6 +6,7 @@
 #include "expogame.h"
 #include <arpa/inet.h>
 #include <errno.h>
+#include <ctype.h>
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
@@ -50,7 +51,7 @@ int recv_string(int sock, char *buffer, size_t max_len) {
         char c;
         ssize_t received = recv(sock, &c, 1, 0);
 
-        if (received == 0) return -1; // Connection closed
+        if (received == 0) return -1;
         if (received < 0) {
             perror("recv error");
             return -1;
@@ -114,7 +115,6 @@ void select_match(int client_sock) {
     while (1) {       
         if (send_string(client_sock, buffer) < 0) exit(1);
         
-        // Display nicely on server console
         char display_buf[BUFFER_SIZE];
         strcpy(display_buf, buffer);
         replace_space_with_newline(display_buf);
@@ -209,6 +209,11 @@ void* client_thread(void* arg) {
                 char buffer[BUFFER_SIZE];
                 if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) break;
                 
+                if (strlen(buffer) == 0 || !isdigit(buffer[0])) {
+                    send_string(client_sock, "Invalid input. Please enter a number [0-3].");
+                    continue;
+                }
+
                 int action = atoi(buffer);
                 int card_idx = 0; 
                 int target_id = -1;
@@ -230,17 +235,48 @@ void* client_thread(void* arg) {
                     }
                     pthread_mutex_unlock(&lock);
                     send_string(client_sock, list_msg);
-                    continue; // Loop back to menu
+                    continue;
                 }
 
                 if (action == 1) {
                     send_string(client_sock, "Enter Card Index (look at [2] See Hand):");
                     if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) break;
+                    
+                    if (!isdigit(buffer[0])) {
+                        send_string(client_sock, "Invalid index format.");
+                        continue;
+                    }
                     card_idx = atoi(buffer);
 
-                    send_string(client_sock, "Enter Target Player ID (or -1 if none):");
-                    if (recv_string(client_sock, buffer, BUFFER_SIZE) >= 0) {
-                        target_id = atoi(buffer);
+                    pthread_mutex_lock(&lock);
+                    Player_t *p = &my_match->players[current_idx];
+                    
+                    if (card_idx < 0 || card_idx >= p->hand.count) {
+                        pthread_mutex_unlock(&lock);
+                        send_string(client_sock, "Invalid card index number.");
+                        continue;
+                    }
+
+                    int actual_idx = (p->hand.current + card_idx) % p->hand.capacity;
+                    CardType type = p->hand.cards[actual_idx].type;
+                    
+                    int needs_target = card_needs_target(type);
+                    pthread_mutex_unlock(&lock);
+
+                    if (needs_target) {
+                        send_string(client_sock, "Enter Target Player NAME:");
+                        if (recv_string(client_sock, buffer, BUFFER_SIZE) < 0) break;
+                        
+                        pthread_mutex_lock(&lock);
+                        target_id = get_player_id_by_name(my_match, buffer);
+                        pthread_mutex_unlock(&lock);
+
+                        if (target_id == -1) {
+                            send_string(client_sock, "Player not found! Check spelling (use [3] List Players).");
+                            continue;
+                        }
+                    } else {
+                        target_id = -1;
                     }
                 }
 

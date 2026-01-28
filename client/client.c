@@ -54,6 +54,7 @@ int recv_string(int sock, char *buffer, size_t max_len) {
 // -------------------------------------------------
 // LOBBY PHASE
 // -------------------------------------------------
+
 void enter_name(int sock, Player_t *user) {
     char name[BUFFER_SIZE];
     char resp[BUFFER_SIZE];
