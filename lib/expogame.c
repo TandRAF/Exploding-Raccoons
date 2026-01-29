@@ -10,6 +10,7 @@
 // -----------------
 const char* get_card_name(CardType type) {
     switch(type) {
+        case CARD_NOPE:return "Nope(Cancel attack)";
         case CARD_ATTACK: return "Attack";
         case CARD_SKIP: return "Skip";
         case CARD_DEFUSE: return "Defuse";
@@ -287,7 +288,7 @@ void run_game_fsm(Match_t *m, int player_id, int action_code, int card_idx, int 
     }
 
     switch (m->state) {
-        // --- STATE 1: SETUP ---
+        
         case STATE_SETUP:
             printf("[FSM] Setting up game...\n");
             m->deck = create_bunch(80); 
@@ -295,10 +296,10 @@ void run_game_fsm(Match_t *m, int player_id, int action_code, int card_idx, int 
             srand(time(NULL));
 
             CardType start_pool[] = { 
-                CARD_ATTACK, CARD_SKIP, CARD_FAVOR, CARD_SHUFFLE, CARD_SEE_FUTURE,
+                CARD_NOPE,CARD_ATTACK, CARD_SKIP, CARD_FAVOR, CARD_SHUFFLE, CARD_SEE_FUTURE,
                 CARD_RACOON_TACO, CARD_RACOON_MELON, CARD_RACOON_POTATO, CARD_RACOON_BEARD, CARD_RACOON_RAINBOW 
             };
-            int pool_size = 10;
+            int pool_size = 11;
 
             for(int i=0; i<m->count; i++) {
                 for(int j=0; j<4; j++) {
@@ -315,7 +316,7 @@ void run_game_fsm(Match_t *m, int player_id, int action_code, int card_idx, int 
                 bunch_push(&m->deck, bomb);
             }
             
-            CardType all_types[] = { CARD_ATTACK, CARD_SKIP, CARD_FAVOR, CARD_SHUFFLE, CARD_SEE_FUTURE,
+            CardType all_types[] = { CARD_NOPE,CARD_ATTACK, CARD_SKIP, CARD_FAVOR, CARD_SHUFFLE, CARD_SEE_FUTURE,
                                      CARD_RACOON_TACO, CARD_RACOON_MELON, CARD_RACOON_POTATO, 
                                      CARD_RACOON_BEARD, CARD_RACOON_RAINBOW };
             for(int i=0; i < 5; i++) { 
@@ -357,7 +358,20 @@ void run_game_fsm(Match_t *m, int player_id, int action_code, int card_idx, int 
                 
                 if (played.type == CARD_SKIP) {
                     next_turn(m);
-                }
+                }else if (played.type == CARD_NOPE) {
+                    if (m->attack_turns_accumulated > 0) {
+                        printf("NOPE! Player %s cancelled the attack!\n", curr_p->name);
+
+                       
+                        m->attack_turns_accumulated = 0;
+        
+                        char msg[] = "You used NOPE! You are no longer under attack. You can now Draw safely.\n";
+                         send(curr_p->id, msg, strlen(msg), 0);
+                    } else {
+                         char msg[] = "You wasted a NOPE! (Only works when you are Attacked in this simplified version)\n";
+                         send(curr_p->id, msg, strlen(msg), 0);
+                         }
+                    }
                 else if (played.type == CARD_ATTACK) {
                     printf("ATTACK! %s ends turn without drawing.\n", curr_p->name);
                     int extra_turns = (m->attack_turns_accumulated == 0) ? 1 : (m->attack_turns_accumulated + 2);
@@ -405,7 +419,7 @@ void run_game_fsm(Match_t *m, int player_id, int action_code, int card_idx, int 
                     }
                 }
                 else if (played.type >= CARD_RACOON_TACO && played.type <= CARD_RACOON_RAINBOW) {
-                    // Check for Pair
+                    
                     if (remove_card_by_type(&curr_p->hand, played.type)) {
                         printf("%s played a PAIR of %ss!\n", curr_p->name, get_card_name(played.type));
                         
@@ -440,7 +454,7 @@ void run_game_fsm(Match_t *m, int player_id, int action_code, int card_idx, int 
             }
             break;
 
-        // --- STATE 3: DRAW PHASE ---
+       
         case STATE_DRAW_PHASE: {
             Card_t drawn = bunch_pop(&m->deck);
             printf("Player %s drew: %s\n", curr_p->name, get_card_name(drawn.type));
